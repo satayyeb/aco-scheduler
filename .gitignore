@@ -1,0 +1,10 @@
+*.csv
+*.xml
+data
+SumoOutputGenerator
+SumoDividedByTime
+share
+Scripts
+Lib
+checkpoints
+__pycache__
