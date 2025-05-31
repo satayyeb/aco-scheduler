@@ -1,3 +1,4 @@
+import enum
 from enum import IntEnum
 
 
@@ -14,3 +15,9 @@ class FogType(IntEnum):
 
     FIXED = 1
     MOBILE = 2
+
+
+class VehicleApplicationType(enum.Enum):
+    CRUCIAL = 'crucial'
+    HIGH_CRITICAL = 'high_critical'
+    LOW_CRITICAL = 'low_critical'

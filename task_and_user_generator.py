@@ -1,4 +1,5 @@
 import csv
+import math
 import os
 import random
 import xml.etree.ElementTree as Et
@@ -7,6 +8,9 @@ from dataclasses import dataclass
 from xml.dom import minidom
 
 import matplotlib.pyplot as plt
+import numpy as np
+
+from utils.enums import VehicleApplicationType
 
 
 class Config:
@@ -15,6 +19,14 @@ class Config:
     class TaskConfig:
         MIN_EXEC_TIME: float = 12.5  # Slightly increased execution times
         MAX_EXEC_TIME: float = 25.0  # Tasks take longer to complete
+        MIN_POWER_CONSUMPTION: float = 1.0  # Higher power consumption than before
+        MAX_POWER_CONSUMPTION: float = 3.5
+        DEADLINE_MIN_FREE_TIME: float = 3.0  # Less deadline flexibility # note : next time make it a little bit more
+        DEADLINE_MAX_FREE_TIME: float = 15.0
+
+    class CrucialTaskConfig:
+        MIN_EXEC_TIME: float = 2.5  # Slightly increased execution times
+        MAX_EXEC_TIME: float = 4.5  # Tasks take longer to complete
         MIN_POWER_CONSUMPTION: float = 1.0  # Higher power consumption than before
         MAX_POWER_CONSUMPTION: float = 3.5
         DEADLINE_MIN_FREE_TIME: float = 3.0  # Less deadline flexibility # note : next time make it a little bit more
@@ -32,6 +44,7 @@ class Config:
         # MEDIUM_TRANSMISSION_POWER = 10
         HIGH_TRANSMISSION_POWER = 5
         # TRANSMISSION_LIST = [LOW_TRANSMISSION_POWER, MEDIUM_TRANSMISSION_POWER, HIGH_TRANSMISSION_POWER]
+        MAX_SPEED: float = 30.0  # Maximum speed of a vehicle
 
     class MobileFogConfig:
         MAX_COMPUTATION_POWER: float = 12.0  # Slightly reduced power in fog nodes
@@ -60,6 +73,7 @@ class Task:
     exec_time: float  # The amount of time that this task required to execute.
     power: float  # The amount of power unit that this tasks consumes while executing.
     creator: str  # Thd id of the node who created the task.
+    priority: VehicleApplicationType
 
 
 class Generator:
@@ -70,6 +84,7 @@ class Generator:
         self.tasks_count_per_step = defaultdict(int)
         self.average_speed_per_step = defaultdict(float)
         self.total_task_power_per_step = defaultdict(float)
+        self.last_crucial_task_spawn_times: dict = {}
 
         # Create output directories
         os.makedirs("./data/vehicles", exist_ok=True)
@@ -114,20 +129,37 @@ class Generator:
         root = Et.Element('fcd-export')
         root.set("version", "1.0")
 
+        crucial_root = Et.Element('fcd-export')
+        crucial_root.set("version", "1.0")
+
         for time_data in self.current_tasks:
             time_elem = Et.SubElement(root, 'timestep')
             time_elem.set('time', f"{time_data['step']}")
-            for task in time_data['tasks']:
-                t_elem = Et.SubElement(time_elem, 'task')
-                t_elem.set('id', task.id)
-                t_elem.set('deadline', f"{task.deadline:.2f}")
-                t_elem.set('exec_time', f"{task.exec_time:.2f}")
-                t_elem.set('power', f"{task.power:.2f}")
-                t_elem.set('creator', task.creator)
 
-        xml_str = minidom.parseString(Et.tostring(root)).toprettyxml(indent="    ")
+            crucial_time_elem = Et.SubElement(crucial_root, 'timestep')
+            crucial_time_elem.set('time', f"{time_data['step']}")
+
+            for task in time_data['tasks']:
+                if task.priority == VehicleApplicationType.CRUCIAL:
+                    element = Et.SubElement(crucial_time_elem, 'task')
+                else:
+                    element = Et.SubElement(time_elem, 'task')
+                self._add_task_to_xml_element(element, task)
+
         with open(f"./data/tasks/chunk_{self.current_chunk}.xml", 'w', encoding='utf-8') as f:
-            f.write(xml_str)
+            f.write(minidom.parseString(Et.tostring(root)).toprettyxml(indent="    "))
+
+        with open(f"./data/tasks/crucial_chunk_{self.current_chunk}.xml", 'w', encoding='utf-8') as f:
+            f.write(minidom.parseString(Et.tostring(crucial_root)).toprettyxml(indent="    "))
+
+    @staticmethod
+    def _add_task_to_xml_element(element, task):
+        element.set('id', task.id)
+        element.set('deadline', f"{task.deadline:.2f}")
+        element.set('exec_time', f"{task.exec_time:.2f}")
+        element.set('power', f"{task.power:.2f}")
+        element.set('creator', task.creator)
+        element.set('priority', task.priority.name)
 
     def calculate_metrics(self, step: float, vehicles: list[Vehicle], tasks: list[Task]):
         """Calculate metrics for the current timestep."""
@@ -144,31 +176,59 @@ class Generator:
         # Calculate total power of tasks for this step
         self.total_task_power_per_step[step] = round(sum(task.power for task in tasks), 2)
 
-    @staticmethod
-    def generate_one_step_task(step, vehicle, lane_counter):
-        """Generate tasks for each mobile fog node."""
+    def generate_raw_task(self, step, vehicle, lane_counter, priority):
+        task_config = Config.CrucialTaskConfig if priority == VehicleApplicationType.CRUCIAL else Config.TaskConfig
         exec_time = round(
             random.uniform(
-                Config.TaskConfig.MIN_EXEC_TIME,
-                Config.TaskConfig.MAX_EXEC_TIME,
+                task_config.MIN_EXEC_TIME,
+                task_config.MAX_EXEC_TIME,
             ),
             2
         )
         deadline_free = round(
             random.uniform(
-                Config.TaskConfig.DEADLINE_MIN_FREE_TIME,
-                Config.TaskConfig.DEADLINE_MAX_FREE_TIME,
+                task_config.DEADLINE_MIN_FREE_TIME,
+                task_config.DEADLINE_MAX_FREE_TIME,
             ),
             2
         )
         deadline = round(exec_time + deadline_free) + step
         power = round(
             random.uniform(
-                Config.TaskConfig.MIN_POWER_CONSUMPTION,
-                Config.TaskConfig.MAX_POWER_CONSUMPTION
+                task_config.MIN_POWER_CONSUMPTION,
+                task_config.MAX_POWER_CONSUMPTION
             ),
             2
         )
+        return Task(
+            id=f"{vehicle.id}_{step}",
+            deadline=deadline,
+            exec_time=exec_time,
+            power=power,
+            creator=vehicle.id,
+            priority=priority,
+        )
+
+    def generate_crucial_task(self, step, vehicle, lane_counter):
+        """ Generate crucial tasks PERIODICALLY"""
+
+        # No tasks for stopped or off vehicles:
+        if vehicle.speed == 0 or vehicle.power == 0:
+            return None
+
+        # Calculate the crucial tasks spawn rate:
+        max_number_of_concurrent_tasks = (vehicle.power * 0.6) / Config.CrucialTaskConfig.MAX_POWER_CONSUMPTION
+        min_period = Config.CrucialTaskConfig.MAX_EXEC_TIME / max_number_of_concurrent_tasks
+        period = min_period * (Config.VehicleConfig.MAX_SPEED / vehicle.speed)
+
+        # Spawn a new crucial task:
+        last_spawn_time = self.last_crucial_task_spawn_times.get(vehicle.id, -math.inf)
+        if step - last_spawn_time >= period:
+            self.last_crucial_task_spawn_times[vehicle.id] = step
+            return self.generate_raw_task(step, vehicle, lane_counter, priority=VehicleApplicationType.CRUCIAL)
+
+    def generate_one_step_task(self, step, vehicle, lane_counter):
+        """Generate tasks for each mobile fog node."""
         chance = random.random()
         threshold = Config.VehicleConfig.TASK_GENERATION_RATE
         if (
@@ -178,13 +238,24 @@ class Generator:
             threshold = Config.VehicleConfig.FUCKED_UP_TASK_GENERATION_RATE
         if chance > threshold:
             return None
-        return Task(
-            id=f"{vehicle.id}_{step}",
-            deadline=deadline,
-            exec_time=exec_time,
-            power=power,
-            creator=vehicle.id
-        )
+
+        # Choose priority with weighted bias
+        priority = random.choices(
+            [VehicleApplicationType.LOW_CRITICAL, VehicleApplicationType.HIGH_CRITICAL],
+            weights=[0.7, 0.3],
+            k=1
+        )[0]
+
+        # Poisson sampling: generate number of tasks
+        if priority == VehicleApplicationType.LOW_CRITICAL:
+            poisson_count = np.random.poisson(1.5)  # λ = 1.5
+        else:
+            poisson_count = np.random.poisson(0.5)  # λ = 0.5
+
+        if poisson_count == 0:
+            return None  # No task generated this step for this vehicle
+
+        return self.generate_raw_task(step, vehicle, lane_counter, priority)
 
     def generate_one_step(self, step, time_data, seen_ids_power):
         """Generate vehicles for each mobile fog node."""
@@ -233,6 +304,9 @@ class Generator:
 
             if task := self.generate_one_step_task(step, vehicle_obj, lane_counter[vehicle_obj.lane]):
                 current_tasks.append(task)
+
+            if crucial_task := self.generate_crucial_task(step, vehicle_obj, lane_counter[vehicle_obj.lane]):
+                current_tasks.append(crucial_task)
 
         # Calculate metrics before saving the chunk
         self.calculate_metrics(step, current_vehicles, current_tasks)
