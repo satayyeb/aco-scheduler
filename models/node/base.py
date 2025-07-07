@@ -1,17 +1,32 @@
 from __future__ import annotations
 
 import abc
+import math
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Deque
+import numpy as np
 
+from NoiseConfigs.utilsFunctions import UtilsFunc
 from config import Config
 from models.base import ModelBaseABC
 from utils.enums import Layer
 from utils.distance import get_distance
+from task_and_user_generator import Config as Cnf
 
 def blue_bg(text):
     return f"\033[44m{text}\033[0m"
+
+def calcPathLoss(task, node):
+    """
+    node : nearest_node or executor node
+    """
+    return UtilsFunc().path_loss_km_ghz(
+        d_km=UtilsFunc().distance(task.creator.x, task.creator.y,
+                                  node.x, node.y) / 1000,
+        f_ghz=UtilsFunc().FREQUENCY_GH,
+        n=2
+    )
 
 def findExecTimeInEachKindOfNode(task, executor=None):
     from models.node.user import UserNode
@@ -24,21 +39,64 @@ def findExecTimeInEachKindOfNode(task, executor=None):
         taskExecutor = executor
     if isinstance(taskExecutor, UserNode):
         # print("UserNode()")
-        return task.real_exec_time(executor=taskExecutor)
+        return task.real_exec_time(executor=taskExecutor) * 1.5
     elif isinstance(taskExecutor, CloudNode):
         # print("CloudNode()")
-        return task.real_exec_time(executor=taskExecutor) / 2
+        return task.real_exec_time(executor=taskExecutor) / 5
     elif isinstance(taskExecutor, FixedFogNode):
         # print("FixedFogNode()")
-        return task.real_exec_time(executor=taskExecutor) / 2
+        return task.real_exec_time(executor=taskExecutor) / 3
     elif isinstance(taskExecutor, MobileFogNode):
         # print("MobileFogNode()")
-        return task.real_exec_time(executor=taskExecutor) / 1.5
+        return task.real_exec_time(executor=taskExecutor) / 2
     else:
         print("errrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrorr")
         return -1
 
     # return real_exec_time_base
+
+def calculate_distance(x1, y1, x2, y2):
+    return math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+
+
+def find_closest_fn(x, y, fn_nodes, taskPower):
+    closest_fn = None
+    min_distance = float('inf')
+    # print(fn_nodes)
+
+    for fn in fn_nodes.values():
+        # print(fn)
+        distance = calculate_distance(x, y, fn.x, fn.y)
+        if distance < min_distance:
+            min_distance = distance
+            closest_fn = fn
+
+    return closest_fn
+
+def findDataRate(task, executor, closest_fn) -> float:
+    from models.node.cloud import CloudNode
+    from models.node.fog import FixedFogNode
+    from models.node.fog import MobileFogNode
+    eta = 0.0
+    pathLoss = 0.0
+    if isinstance(executor, MobileFogNode) or isinstance(executor, FixedFogNode):
+        # print(blue_bg(f"{executor.id}:{len(executor.tasks)}"))
+        # eta = task.power / executor.power
+        eta = 1/(len(executor.tasks)+1)
+        pathLoss = calcPathLoss(task, executor)
+    elif isinstance(executor, CloudNode):
+        # eta = task.power / closest_fn.power
+        eta = 1/(len(closest_fn.tasks)+1)
+        pathLoss = calcPathLoss(task, closest_fn)
+
+    # print(green_bg(
+    #     f"task.id: {task.id}, task.executor.id: {executor.id}, task.power: {task.power}, task.executor.power: {executor.power}, eta : {eta}"))
+
+    path_loss_linear = 10 ** (pathLoss / 10)
+    received_power = Cnf().VehicleConfig().HIGH_TRANSMISSION_POWER * path_loss_linear
+    snr = received_power / 10**-17
+
+    return eta * Config.SimulatorConfig.BANDWIDTH * np.log2(1 + snr)
 
 
 @dataclass
@@ -95,7 +153,7 @@ class NodeABC(ModelBaseABC, abc.ABC):
         task.start_time = current_time
         # task.start_time = task.release_time
 
-    def execute_tasks(self, current_time: float) -> list:
+    def execute_tasks(self, current_time: float, fixed_fog_nodes) -> list:
         """Execute current tasks and return all completed tasks."""
         remaining_tasks = deque()
         finished_tasks = deque()
@@ -124,8 +182,8 @@ class NodeABC(ModelBaseABC, abc.ABC):
         self.tasks = remaining_tasks
         self.finished_tasks = self.finished_tasks + finished_tasks
 
-        finished_tasks = []
-        remaining_tasks = deque()
+        final_finished_tasks = []
+        remaining_finished_tasks = deque()
         while self.finished_tasks:
 
             task = self.finished_tasks.popleft()
@@ -134,27 +192,46 @@ class NodeABC(ModelBaseABC, abc.ABC):
             distance = task.get_creator_and_executor_distance()
             if not task:
                 print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
-            real_exec_time = task.real_exec_time_base + \
-                             distance * 2 * Config.TaskConfig.PACKET_COST_PER_METER + \
-                             distance * Config.TaskConfig.TASK_COST_PER_METER
-            print(blue_bg(f"transmission delay: {distance * 2 * Config.TaskConfig.PACKET_COST_PER_METER + distance * Config.TaskConfig.TASK_COST_PER_METER}, distance: {distance}, task.real_exec_time_base: {task.real_exec_time_base}, executor: {task.executor}"))
-            if self.layer == Layer.CLOUD:
-                real_exec_time += Config.TaskConfig.CLOUD_PROCESSING_OVERHEAD
-            elif task.has_migrated:
-                real_exec_time += Config.TaskConfig.MIGRATION_OVERHEAD * distance
+            real_exec_time = task.real_exec_time_base
+            if task.creator.id != task.executor.id:
+                # print(green_bg(f"dataRate = {dataRate}"))
+                # print(self.id)
+                if self.layer == Layer.FOG:
+                    dataRate = findDataRate(task, task.executor, 0)
+
+                    real_exec_time += task.dataSize / dataRate
+                    # print(blue_bg(f"executor: {task.executor.id}::: delay: {task.dataSize / dataRate}, dataRate: {dataRate}"))
+                elif self.layer == Layer.CLOUD:
+
+                    closest_fn = find_closest_fn(task.creator.x, task.creator.y, fixed_fog_nodes, task.power)
+                    dataRate = findDataRate(task, task.executor, closest_fn)
+
+                    if closest_fn.x == 4214.90 and closest_fn.y == 1932.26:
+                        real_exec_time += (task.dataSize / dataRate) + (
+                                task.dataSize / Config.CloudConfig.CLOUD_BANDWIDTH)
+                        # print(blue_bg(f"executor: {task.executor.id}::: delay: {(task.dataSize / dataRate) + (task.dataSize / Config.CloudConfig.CLOUD_BANDWIDTH)}, dataRate: {dataRate}"))
+                    else:
+                        real_exec_time += (task.dataSize / dataRate) + 2 * (
+                                task.dataSize / Config.CloudConfig.CLOUD_BANDWIDTH)
+                        # print(blue_bg(f"executor: {task.executor.id}::: firstStepDelay: {(task.dataSize / dataRate)}, delay: {(task.dataSize / dataRate) + 2 * (task.dataSize / Config.CloudConfig.CLOUD_BANDWIDTH)}, dataRate: {dataRate}"))
+
+                        # real_exec_time += Config.TaskConfig.CLOUD_PROCESSING_OVERHEAD
+
+            # elif task.has_migrated:
+            #     real_exec_time += Config.TaskConfig.MIGRATION_OVERHEAD * task.dataSize
 
             # print(f"[DEBUG] Re-checking task {task.id}: new_exec_time={real_exec_time}, elapsed={current_time - task.start_time}")
 
             if current_time - task.start_time >= real_exec_time:
                 task.finish_time = task.start_time + real_exec_time
-                finished_tasks.append(task)
+                final_finished_tasks.append(task)
             else:
-                remaining_tasks.append(task)
+                remaining_finished_tasks.append(task)
 
-        self.finished_tasks = remaining_tasks
+        self.finished_tasks = remaining_finished_tasks
 
         # print(f"finished_tasks: {finished_tasks}")
-        return finished_tasks
+        return final_finished_tasks
 
     @property
     @abc.abstractmethod

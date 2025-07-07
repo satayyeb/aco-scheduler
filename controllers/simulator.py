@@ -2,9 +2,8 @@ import random
 from collections import defaultdict
 from typing import Dict, List
 
-from NoiseConfigs.utilsFunctions import UtilsFunc
 from config import Config
-from controllers.finalChoiceByAttenuationNoise import FinalChoiceByAttenuationNoise
+from controllers.finalChoice import FinalChoice
 from controllers.loader import Loader
 from controllers.metric import MetricsController
 from controllers.zone_managers.base import ZoneManagerABC
@@ -17,40 +16,18 @@ from models.node.user import UserNode
 from models.task import Task
 from utils.clock import Clock
 from utils.enums import Layer
-import sys
-import os
-
-sys.path.append(os.path.abspath("E:/VANET - Copy/NoiseConfigs"))
 
 
 def yellow_bg(text):
     return f"\033[43m{text}\033[0m"
 
+
 def red_bg(text):
     return f"\033[41m{text}\033[0m"
 
+
 def blue_bg(text):
     return f"\033[44m{text}\033[0m"
-
-
-# note: check again
-def logAttenuation(attenuationList):
-    sampleList = []
-    for i in range(0, len(attenuationList)):
-        sampleList.append(attenuationList[i])
-    print(yellow_bg("attenuationList") + f":{len(sampleList)}")
-
-
-def calcAttenuation(task, node, intersecting_partitions):
-    """
-    node : nearest_node or executor node
-    """
-    return UtilsFunc().path_loss_km_ghz(
-        d_km=UtilsFunc().distance(task.creator.x, task.creator.y,
-                                  node.x, node.y) / 1000,
-        f_ghz=UtilsFunc().FREQUENCY_GH,
-        n=UtilsFunc().get_max_urban_status(intersecting_partitions)
-    ) + UtilsFunc().get_max_rain_attenuation(intersecting_partitions)
 
 
 class Simulator:
@@ -91,13 +68,7 @@ class Simulator:
                     fixed_nodes.append(fixed_node)
             zone_manager.add_fixed_fog_nodes(fixed_nodes)
 
-    # check traffic status
-    def logTrafficStatus(self, partitions):
-        for partition in partitions:
-            print(
-                f"Partition at ({partition.centerX}, {partition.centerY}): Traffic Status = {partition.trafficStatus}")
-
-    def retransmission(self, zone_managers, current_time, partitions):
+    def retransmission(self, zone_managers, current_time):
         tasks_to_retransmit = []
         for scheduled_time in list(self.retransmission_tasks.keys()):
             if scheduled_time <= current_time:
@@ -106,22 +77,18 @@ class Simulator:
         if tasks_to_retransmit:
             for task in tasks_to_retransmit:
                 possible_zone_managers = self.find_zone_manager_offload_task(zone_managers, task, current_time)
-                if self.choose_executor_and_assign(possible_zone_managers, task, partitions, current_time):
+                if self.choose_executor_and_assign(possible_zone_managers, task, current_time):
                     continue
-
 
     def find_zone_manager_offload_task(self, zone_managers, task, current_time):
         zone_manager_offload_task = []
         for zone_manager in zone_managers:
             # print(f"zone_manager:{zone_manager.zone}")
             if zone_manager.can_offload_task(task):
-                # has_offloaded = True
 
                 # assign task
                 if hasattr(zone_manager, "propose_candidate"):
-                    proposed_zone_manager, proposed_executor = zone_manager.propose_candidate(task,
-                                                                                              current_time)
-                    # print(f"proposed_executor:{proposed_executor}")
+                    proposed_zone_manager, proposed_executor = zone_manager.propose_candidate(task, current_time)
                 else:
                     proposed_zone_manager = zone_manager
                     proposed_executor = zone_manager.offload_task(task, current_time)
@@ -131,121 +98,63 @@ class Simulator:
                         zone_manager_offload_task.append((proposed_zone_manager, proposed_executor))
         return zone_manager_offload_task
 
-    def choose_executor_and_assign(self, zone_manager_offload_task, task, partitions, current_time):
+    def choose_executor_and_assign(self, zone_manager_offload_task, task, current_time):
         # if any ZM suggest any device to offload
         if len(zone_manager_offload_task) != 0:
-            attenuationList = []
+            finalCandidates = []
 
             for candidate in zone_manager_offload_task:
                 zone_manager, candidate_executor = candidate
                 # print(f"candidate_executor: {candidate_executor}")
-                intersecting_partitions = UtilsFunc().find_line_intersections(
-                    (task.creator.x, task.creator.y),
-                    (candidate_executor.x, candidate_executor.y),
-                    partitions
-                )
 
-                if len(intersecting_partitions) > 0 and not isinstance(candidate_executor, CloudNode):
-                    attenuation = calcAttenuation(task, candidate_executor, intersecting_partitions)
-                    # check : print(blue_bg(f"{attenuation}, {task.creator.x}, {task.creator.y}, {candidate_executor.x}, {candidate_executor.y}"))
-                elif isinstance(candidate_executor, CloudNode):
-                    # todo : find the nearest fog node and after that add a constraint latency for transmitting by fiber
-                    # print(self.fixed_fog_nodes)
-                    nearest_node_id = min(self.fixed_fog_nodes.keys(),
-                                          key=lambda node_id: ((self.fixed_fog_nodes[node_id].x - task.creator.x) ** 2 +
-                                                               (self.fixed_fog_nodes[node_id].y - task.creator.y) ** 2) ** 0.5)
-                    nearest_node = self.fixed_fog_nodes[nearest_node_id]
+                finalCandidates.append((zone_manager, candidate_executor))
 
-                    attenuation = calcAttenuation(task, nearest_node, intersecting_partitions)
-
-                else:
-                    attenuation = 0
-                    # locally offloading
-                attenuationList.append((zone_manager, candidate_executor, attenuation))
-            # logAttenuation(attenuationList)
-
-            # todo: make decision to offload a task
-            finalChoiceToOffload, plr = FinalChoiceByAttenuationNoise().makeFinalChoice(attenuationList,
-                                                                                        task,
-                                                                                        partitions,
-                                                                                        Config.NoiseMethod.DEFAULT_METHOD)
-
-            packetLossRandomNumber = random.randint(0, 100)
+            finalChoiceToOffload = FinalChoice().makeFinalChoice(finalCandidates, Config.FinalDeciderMethod.DEFAULT_METHOD)
 
             # if finalChoiceToOffload:
             #     print(yellow_bg(f"finalChoiceToOffload:{finalChoiceToOffload}"))
 
-            if finalChoiceToOffload:
-                if packetLossRandomNumber < plr:
-                    self.metrics.inc_packet_loss()
-                    # print(blue_bg("----------------------------------------------------------------------------"))
-                    # todo : add retransmission
-                    chosen_zone_manager, chosen_executor, _ = finalChoiceToOffload
-                    if task in chosen_executor.tasks:
-                        chosen_executor.tasks.remove(task)
 
-                    timeout_time = current_time + Config.SimulatorConfig.TIMEOUT_TIME
+            chosen_zone_manager, chosen_executor = finalChoiceToOffload
+            self.task_zone_managers[task.id] = chosen_zone_manager
+            self.metrics.inc_node_tasks(chosen_executor.id)
+            if isinstance(chosen_zone_manager, DeepRLZoneManager):
+                state = chosen_zone_manager.env._get_state(task)  # Get current system state
+                # print(blue_bg(f"------------chosen_executor: {chosen_executor}------------\n------------task: {task}------------"))
+                reward, action = chosen_zone_manager.env._compute_reward2(task, chosen_executor)
+                if not chosen_executor.can_offload_task(task) and (reward > -100):
+                    reward = -100
+                    timeout_time = current_time + 1
                     self.schedule_retransmission(task, timeout_time)
-
+                elif reward < -100:
+                    timeout_time = current_time + 1
+                    self.schedule_retransmission(task, timeout_time)
                 else:
-                    chosen_zone_manager, chosen_executor, _ = finalChoiceToOffload
-                    self.task_zone_managers[task.id] = chosen_zone_manager
-                    self.metrics.inc_node_tasks(chosen_executor.id)
-                    if isinstance(chosen_zone_manager, DeepRLZoneManager):
-                        state = chosen_zone_manager.env._get_state(task)  # Get current system state
-                        # print(blue_bg(f"------------chosen_executor: {chosen_executor}------------\n------------task: {task}------------"))
-                        reward, action = chosen_zone_manager.env._compute_reward2(task, chosen_executor)
-                        if not chosen_executor.can_offload_task(task) and (reward > -100):
-                            reward = -100
-                            timeout_time = current_time + 1
-                            self.schedule_retransmission(task, timeout_time)
-                        elif reward < -100:
-                            timeout_time = current_time + 1
-                            self.schedule_retransmission(task, timeout_time)
-                        else:
-                            chosen_executor.assign_task(task, current_time)
+                    chosen_executor.assign_task(task, current_time)
 
-                        # if reward < 0:
-                        #     print(red_bg(f"reward: --- {reward} --- {task.id}, {chosen_executor.id}"))
-                    else:
-                        chosen_executor.assign_task(task, current_time)
-                    # if reward < 0:
-                    #     print(chosen_executor.remaining_power)
-                    if isinstance(chosen_zone_manager, DeepRLZoneManager):
-                        next_state = chosen_zone_manager.env._get_state(task)
-                        chosen_zone_manager.agent.store_experience(state, action, reward, next_state, done=False)  # Store for training
-                        chosen_zone_manager.agent.train()
+                # if reward < 0:
+                #     print(red_bg(f"reward: --- {reward} --- {task.id}, {chosen_executor.id}"))
             else:
-                # note : there is not any device that meet noise problem, so they should retransmit too,
-                #  but without any TIMEOUT, it will retry to exec in next step !
+                chosen_executor.assign_task(task, current_time)
+            # if reward < 0:
+            #     print(chosen_executor.remaining_power)
+            if isinstance(chosen_zone_manager, DeepRLZoneManager):
+                next_state = chosen_zone_manager.env._get_state(task)
+                chosen_zone_manager.agent.store_experience(state, action, reward, next_state,
+                                                           done=False)  # Store for training
+                chosen_zone_manager.agent.train()
 
-                # note todo: : it's good to make it run in the same time
-                self.metrics.inc_no_device_found_to_run_becauseOf_Noise()
-
-                timeout_time = current_time + 1
-                self.schedule_retransmission(task, timeout_time)
         else:
-            if Config.ZoneManagerConfig.DEFAULT_ALGORITHM == Config.ZoneManagerConfig.ALGORITHM_ONLY_FOG:
-                self.metrics.inc_no_resource_found()
+            if task.creator.can_offload_task(task):
+                task.creator.assign_task(task, current_time)
+                self.metrics.inc_local_execution()
             else:
-                if task.creator.can_offload_task(task):
-                    task.creator.assign_task(task, current_time)
-                    self.metrics.inc_local_execution()
-                else:
-                    self.offload_to_cloud(task, current_time)
+                self.offload_to_cloud(task, current_time)
 
     def start_simulation(self):
         self.init_simulation()
         while (current_time := self.clock.get_current_time()) < Config.SimulatorConfig.SIMULATION_DURATION:
             print(red_bg(f"current_time:{current_time}"))
-
-            # Update traffic status
-            traffic_data = UtilsFunc.recognize_traffic_status(
-                f"E:\pythonProject\VANET\SumoDividedByTime\Outputs2\dataInTime{int(self.clock.get_current_time())}.csv")
-            partitions = UtilsFunc.load_partitions("generated_hex_partitions")
-            for partition in partitions:
-                partition.update_traffic_status(traffic_data)
-            # self.logTrafficStatus(partitions)
 
             nodes_tasks = self.load_tasks(current_time)
             user_possible_zones = self.assign_mobile_nodes_to_zones(self.user_nodes, layer=Layer.USER)
@@ -256,15 +165,14 @@ class Simulator:
             for creator_id, tasks in nodes_tasks.items():
                 zone_managers = merged_possible_zones.get(creator_id, [])
                 # print(f"zoneManagers : {zone_managers}")
-                self.retransmission(zone_managers, current_time, partitions)
+                self.retransmission(zone_managers, current_time)
 
                 for task in tasks:
                     self.metrics.inc_total_tasks()
-                    # has_offloaded = False
 
                     zone_manager_offload_task = self.find_zone_manager_offload_task(zone_managers, task, current_time)
-                    # print(blue_bg(f"{len(zone_manager_offload_task)}"))
-                    self.choose_executor_and_assign(zone_manager_offload_task, task, partitions, current_time)
+                    # check: this function
+                    self.choose_executor_and_assign(zone_manager_offload_task, task, current_time)
 
             self.update_graph()
             self.execute_tasks_for_one_step()
@@ -281,11 +189,13 @@ class Simulator:
                 creator = self.user_nodes[creator_id]
             elif creator_id in self.mobile_fog_nodes:
                 creator = self.mobile_fog_nodes[creator_id]
-            assert creator is not None
 
-            for task in creator_tasks:
-                task.creator = creator
-                tasks[creator_id].append(task)
+            if creator is None:
+                print(f"there is no {creator}\n")
+            else:
+                for task in creator_tasks:
+                    task.creator = creator
+                    tasks[creator_id].append(task)
         return tasks
 
     def execute_tasks_for_one_step(self):
@@ -296,7 +206,7 @@ class Simulator:
             self.cloud_node.id: self.cloud_node,
         }
         for node_id, node in merged_nodes.items():
-            tasks = node.execute_tasks(self.clock.get_current_time())
+            tasks = node.execute_tasks(self.clock.get_current_time(), self.fixed_fog_nodes)
             # if tasks:
             #     print(yellow_bg(f"tasks :{tasks}"))
             executed_tasks.extend(tasks)
@@ -313,12 +223,17 @@ class Simulator:
 
                 if task.creator.id == task.executor.id:
                     self.metrics.inc_local_execution()
-                if task.has_migrated:
-                    self.metrics.inc_migration()
-                if task.has_migrated and task.is_deadline_missed:
-                    self.metrics.inc_migrate_and_miss()
+                elif isinstance(task.executor, FixedFogNode) or isinstance(task.executor, FixedFogNode):
+                    self.metrics.inc_fog_execution()
+                elif isinstance(task.executor, CloudNode):
+                    self.metrics.inc_cloud_tasks()
+                # if task.has_migrated:
+                #     self.metrics.inc_migration()
+                # if task.has_migrated and task.is_deadline_missed:
+                #     self.metrics.inc_migrate_and_miss()
                 if task.is_deadline_missed:
-                    print(blue_bg(f"{task.id}: {task.release_time}, {task.deadline}, {task.exec_time}, {task.finish_time}, {task.executor.id}"))
+                    # print(blue_bg(
+                    #     f"{task.id}: release_time:{task.release_time}, deadline:{task.deadline}, exec_time:{task.exec_time}, finish_time:{task.finish_time}, {task.executor.id}, {task.dataSize}, diff:{task.finish_time-task.deadline}"))
                     self.metrics.inc_deadline_miss()
                 else:
                     self.metrics.inc_completed_task()
@@ -388,31 +303,3 @@ class Simulator:
             for i in range(len(node.tasks)):
                 self.metrics.inc_deadline_miss()
         return left_tasks
-
-    def get_next_task(self):
-        """Retrieve the next unprocessed task from the current simulation step."""
-        current_time = self.clock.get_current_time()
-        tasks = self.load_tasks(current_time)  # Get tasks at this step
-
-        print(f"[DEBUG] Current Time: {current_time}, Total Tasks at this step: {sum(len(t) for t in tasks.values())}")
-
-        for task_list in tasks.values():
-            for task in task_list:
-                print(f"[DEBUG] Checking Task {task.id} - Completed: {task.is_completed}, Executor: {task.executor}")
-                if not task.is_completed and task.executor is None:
-                    print(f"[DEBUG] Found Unprocessed Task: {task.id}")
-                    return task  # Return the first unprocessed task
-
-        print("[DEBUG] No Unprocessed Tasks Found")
-        return None  # No available tasks
-
-    def create_retransmitted_task(task: Task) -> Task:
-        new_id = task.id + "_R"
-        new_task = Task(
-            id=new_id,
-            deadline=task.deadline,
-            exec_time=task.exec_time,
-            power=task.power,
-            creator=task.creator
-        )
-        return new_task

@@ -38,12 +38,7 @@ class DeepRLAgent:
         # Experience Replay Memory
         self.memory = deque(maxlen=10000)
 
-        print(torch.__version__)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print(torch.cuda.is_available())
-        print(torch.backends.cudnn.enabled)
-        print(torch.backends.cudnn.version())
-        print(self.device)
 
         # Neural Networks
         self.model = DQN(state_dim, action_dim).to(self.device)

@@ -16,6 +16,7 @@ class Task(ModelBaseABC):
     exec_time: float  # The amount of time that this task required to execute.
     power: float  # The amount of power unit that this tasks consumes while executing.
     creator_id: str  # Thd id of the node who created the task.
+    dataSize: float
 
     start_time: float = 0  # The time that this task was offloaded to a node (either local or external).
     finish_time: float = 0  # The time that this task was finished in the offloaded node.

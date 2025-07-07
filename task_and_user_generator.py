@@ -37,8 +37,8 @@ class Config:
         FUCKED_UP_TASK_GENERATION_RATE: float = 0.55
         TRAFFIC_MIN_SPEED_THRESHOLD: float = 10  # Lowered speed, causing occasional congestion
         LANE_TRAFFIC_THRESHOLD: int = 15  # More vehicles per lane (moderate traffic)
-        MAX_COMPUTATION_POWER: float = 7.0  # note : change it in feature change !
-        MIN_COMPUTATION_POWER: float = 3.5
+        MAX_COMPUTATION_POWER: float = 6  # note : change it in feature change !
+        MIN_COMPUTATION_POWER: float = 2
         COMPUTATION_POWER_ROUND_DIGIT: int = 2
         LOW_TRANSMISSION_POWER = 20  # todo : it's homogeneous right now and it's good to make it heterogeneous
         # MEDIUM_TRANSMISSION_POWER = 10

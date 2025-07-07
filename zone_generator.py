@@ -317,3 +317,8 @@ def main(content: str, zone_output_file: str, fixed_fog_node_output_file: str):
     zone_generator.save_zones_to_xml(zone_output_file)
     zone_generator.save_fixed_fog_nodes_to_xml(fixed_fog_node_output_file)
     print(f"Generated {len(zone_generator.zones)} zones and saved to {zone_output_file}")
+
+if __name__ == "__main__":
+    with open('data/hamburg.nod.xml', 'r', encoding='utf-8') as file:
+        content = file.read()
+    main(content, 'data/hamburg.zon.xml', 'data/hamburg.fn.xml')

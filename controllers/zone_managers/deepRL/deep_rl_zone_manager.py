@@ -4,7 +4,6 @@ from typing import Unpack
 from controllers.zone_managers.base import ZoneManagerABC, ZoneManagerUpdate
 from controllers.zone_managers.deepRL.deep_rl_agent import DeepRLAgent
 from controllers.zone_managers.deepRL.deep_rl_env import DeepRLEnvironment
-from controllers.zone_managers.heuristic import HeuristicZoneManager
 from models.node.fog import FogLayerABC
 from models.task import Task
 from config import Config
@@ -43,8 +42,8 @@ class DeepRLZoneManager(ZoneManagerABC):
         Checks if there is an available node to offload the task.
         """
         available_nodes = list(self.fixed_fog_nodes.values()) + list(self.mobile_fog_nodes.values())
-        # if self.env.simulator and self.env.simulator.cloud_node:
-        #     available_nodes.append(self.env.simulator.cloud_node)
+        if self.env.simulator and self.env.simulator.cloud_node:
+            available_nodes.append(self.env.simulator.cloud_node)
         return any(node.can_offload_task(task) for node in
                    available_nodes)
         # NOTE :I removed "or self.env.simulator.cloud_node.can_offload_task(task)"
@@ -79,36 +78,15 @@ class DeepRLZoneManager(ZoneManagerABC):
             candidate_executor = self.env.simulator.cloud_node
         return self, candidate_executor
 
-    # def _get_best_fog_node(self, task):
-    #     """
-    #     Finds the best fog node to offload the task based on available resources.
-    #     """
-    #     # print("nooooo")
-    #     fog_nodes = list(self.fixed_fog_nodes.values()) + list(self.mobile_fog_nodes.values())
-    #     fog_nodes = [node for node in fog_nodes if node.can_offload_task(task)]
-    #     # note: that was min , i changed another one too
-    #     return max(fog_nodes, key=lambda n: n.remaining_power, default=None)
-
     def _get_best_fog_node(self, task):
         """
-        Finds the best fog node to offload the task based on minimum future distance.
-        Only considers nodes that can actually offload the task.
+        Finds the best fog node to offload the task based on available resources.
         """
-        creator = task.creator
-        all_fog_nodes = list(self.fixed_fog_nodes.values()) + list(self.mobile_fog_nodes.values())
-
-        # Filter only nodes that can offload the task
-        eligible_nodes = [node for node in all_fog_nodes if node.can_offload_task(task)]
-
-        if not eligible_nodes:
-            return None
-
-        nearest_node = min(
-            eligible_nodes,
-            key=lambda node: HeuristicZoneManager.get_next_distance(task, creator, node),
-            default=None
-        )
-        return nearest_node
+        # print("nooooo")
+        fog_nodes = list(self.fixed_fog_nodes.values()) + list(self.mobile_fog_nodes.values())
+        fog_nodes = [node for node in fog_nodes if node.can_offload_task(task)]
+        # note: that was min , i changed another one too
+        return max(fog_nodes, key=lambda n: n.remaining_power, default=None)
 
     def update(self, **kwargs: Unpack[ZoneManagerUpdate]):
         """

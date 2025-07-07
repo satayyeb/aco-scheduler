@@ -3,12 +3,13 @@ class Config:
 
     class SimulatorConfig:
         SIMULATION_DURATION = 1200
+        BANDWIDTH = 150
 
     class CloudConfig:
-        DEFAULT_X = 2200
-        DEFAULT_Y = 2200
-        DEFAULT_RADIUS = 2500
-
+        DEFAULT_X = 6000
+        DEFAULT_Y = 1500
+        DEFAULT_RADIUS = 10000
+        CLOUD_BANDWIDTH = 60
         MAX_TASK_QUEUE_LEN = 2000
         DEFAULT_COMPUTATION_POWER = 1000
         POWER_LIMIT = 0.99
@@ -27,8 +28,8 @@ class Config:
     class UserNodeConfig:
         MAX_TASK_QUEUE_LEN = 10
         DEFAULT_COMPUTATION_POWER = 20
-        LOCAL_OFFLOAD_POWER_OVERHEAD = 1.1
-        LOCAL_EXECUTE_TIME_OVERHEAD = 1.1
+        LOCAL_OFFLOAD_POWER_OVERHEAD = 1
+        LOCAL_EXECUTE_TIME_OVERHEAD = 1
         POWER_LIMIT = 0.4
 
     class ZoneManagerConfig:
@@ -39,10 +40,9 @@ class Config:
         ALGORITHM_ONLY_FOG = "Only Fog"
         ALGORITHM_DEEP_RL = "DeepRL"
 
-        DEFAULT_ALGORITHM = ALGORITHM_HEURISTIC
+        DEFAULT_ALGORITHM = ALGORITHM_DEEP_RL
 
     class FinalDeciderMethod:
-        PROPOSED_METHOD3 = "Proposed Method3"
         FIRST_CHOICE = "First Choice"
         RANDOM_CHOICE = "Random Choice"
         MIN_DISTANCE = "Min Distance"
@@ -53,12 +53,8 @@ class Config:
         OFFLOAD_CHANCE: float = 0.5
 
     class TaskConfig:
-        # note: PACKET_COST_PER_METER = 0.001
         PACKET_COST_PER_METER = 0.001
-        # PACKET_COST_PER_METER = 0.005
 
-        # note: TASK_COST_PER_METER = 0.005
-        # TASK_COST_PER_METER = 0.01
         TASK_COST_PER_METER = 0.005
 
         MIGRATION_OVERHEAD = 0.01
