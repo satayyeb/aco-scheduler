@@ -1,0 +1,54 @@
+import task_and_user_generator
+from utils import  xml_parser
+from utils.enums import VehicleApplicationType
+import xml.etree.ElementTree as ET
+
+class offloading:
+
+    def tasks_from_xml(file_path):
+        tree = ET.parse(file_path)
+        root = tree.getroot()
+        tasks = {}
+        for timestep in root.findall("timestep"):
+            for task in timestep.findall("task"):
+                task_id = task.attrib["id"]
+                tasks[task_id] = {
+                    "deadline": float(task.attrib["deadline"]),
+                    "exec_time": float(task.attrib["exec_time"]),
+                    "power": float(task.attrib["power"]),
+                    "creator": task.attrib["creator"],
+                    "priority": task.attrib["priority"]
+                }
+        return tasks
+
+    def vehicles_from_xml_files(file_path):
+        tree = ET.parse(file_path)
+        root = tree.getroot()
+        vehicles = {}
+
+        for timestep in root.findall("timestep"):
+            time = float(timestep.attrib["time"])
+            for vehicle in timestep.findall("vehicle"):
+                vehicle_id = vehicle.attrib["id"]
+
+                if vehicle_id not in vehicles:
+                    vehicles[vehicle_id] = []
+
+                vehicle_data = {
+                    "time": time,
+                    "x": float(vehicle.attrib["x"]),
+                    "y": float(vehicle.attrib["y"]),
+                    "angle": float(vehicle.attrib["angle"]),
+                    "speed": float(vehicle.attrib["speed"]),
+                    "lane": vehicle.attrib["lane"],
+                    "type": vehicle.attrib["type"],
+                    "power": float(vehicle.attrib["power"])
+                }
+
+                vehicles[vehicle_id].append(vehicle_data)
+
+        return vehicles
+    
+tasks = tasks_from_xml("./data/tasks/chunk_0.xml")
+crucial_tasks = tasks_from_xml("./data/crucial_tasks/chunk_0.xml")
+vehicle_info = vehicles_from_xml_files("./data/vehicles/chunk_0.xml")

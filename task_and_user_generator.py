@@ -239,21 +239,9 @@ class Generator:
         if chance > threshold:
             return None
 
-        # Choose priority with weighted bias
-        priority = random.choices(
-            [VehicleApplicationType.LOW_CRITICAL, VehicleApplicationType.HIGH_CRITICAL],
-            weights=[0.7, 0.3],
-            k=1
-        )[0]
-
-        # Poisson sampling: generate number of tasks
-        if priority == VehicleApplicationType.LOW_CRITICAL:
-            poisson_count = np.random.poisson(1.5)  # λ = 1.5
-        else:
-            poisson_count = np.random.poisson(0.5)  # λ = 0.5
-
-        if poisson_count == 0:
-            return None  # No task generated this step for this vehicle
+        # Probability of kind of tasks using poisson
+        sample = np.random.poisson(2)
+        priority = VehicleApplicationType.LOW_CRITICAL if sample <= 2 else VehicleApplicationType.HIGH_CRITICAL
 
         return self.generate_raw_task(step, vehicle, lane_counter, priority)
 
