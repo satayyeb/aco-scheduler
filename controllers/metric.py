@@ -4,16 +4,21 @@ from collections import defaultdict
 class MetricsController:
     """Gathers and store all statistics metrics in our system."""
 
-    def __init__(self):
+    def __init__(self, clock):
+        self.clock = clock
         # General Metrics
         self.migrations_count = 0  # Total number of migrations happened in system.
         self.deadline_misses = 0  # Total number of deadline misses happened in system.
+        self.deadline_miss_history = []
         self.no_resource_found = 0  # Total number of tasks that did not find resource to execute in system.
         self.migrate_and_miss = 0
         self.local_execution = 0
         self.total_tasks = 0  # Total number of tasks processed in system.
         self.cloud_tasks = 0  # Total number of tasks offloaded to cloud server.
+        self.fog_tasks = 0    # Total number of tasks offloaded to fog.
         self.completed_tasks = 0  # Total number of tasks completed in system.
+        self.preempted_tasks = 0
+        self.preemption_history = []
 
         # Per Node Metrics
         self.node_task_counts: dict[str, int] = defaultdict(int)
@@ -28,6 +33,11 @@ class MetricsController:
 
         # Per task metrics
         self.task_load_diff: dict[int, tuple[float, float]] = {}
+
+    def inc_preemption(self, count: int = 1):
+        self.preempted_tasks += count
+        timestep = self.clock.get_current_time()
+        self.preemption_history.append((timestep, self.preempted_tasks))
 
     def inc_task_load_diff(self, task_id:int, min_load: float, max_load: float):
         self.task_load_diff[task_id] = (min_load, max_load)
@@ -54,12 +64,17 @@ class MetricsController:
     def inc_deadline_miss(self):
         self.current_step_deadline_misses += 1
         self.deadline_misses += 1
+        timestep = self.clock.get_current_time()
+        self.deadline_miss_history.append((timestep, self.deadline_misses))
 
     def inc_total_tasks(self):
         self.total_tasks += 1
 
     def inc_node_tasks(self, node_id: str):
         self.node_task_counts[node_id] += 1
+
+    def inc_fog_execution(self):
+        self.fog_tasks += 1
 
     def inc_cloud_tasks(self):
         self.cloud_tasks += 1
@@ -77,7 +92,9 @@ class MetricsController:
         print(f"\tTotal migrations: {self.migrations_count}")
         print(f"\tTotal deadline misses: {self.deadline_misses}")
         print(f"\tTotal migrate and misses: {self.migrate_and_miss}")
+        print(f"\tTotal preempted tasks: {self.preempted_tasks}")
         print(f"\tTotal cloud tasks: {self.cloud_tasks}")
+        print(f"\tTotal fog tasks: {self.fog_tasks}")
         print(f"\tTotal local execution tasks: {self.local_execution}")
         print(f"\tTotal completed tasks: {self.completed_tasks}")
         print(f"\tTotal tasks: {self.total_tasks}")

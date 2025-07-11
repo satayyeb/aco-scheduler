@@ -125,21 +125,12 @@ cloud = CloudNode(
     radius=Config.CloudConfig.DEFAULT_RADIUS,
 )
 
-simulator = Simulator(loader, Clock(), cloud)
+if __name__ == '__main__':
 
-simulator.start_simulation()
+    simulator = Simulator(loader, Clock(), cloud)
 
-for _, zone_manager in simulator.zone_managers.items():
-    if isinstance(zone_manager, HRLZoneManager):
-        zone_manager.save_checkpoint("./checkpoints")
+    simulator.start_simulation()
 
-SCENARIO = "Rainy"
-
-print(
-    f"{SCENARIO}\t{Config.ZoneManagerConfig.DEFAULT_ALGORITHM}\t"
-    f"{simulator.metrics.total_tasks}\t{simulator.metrics.completed_tasks}\t"
-    f"{simulator.metrics.deadline_misses}\t{simulator.metrics.migrations_count}\t{simulator.metrics.cloud_tasks}"
-)
-
-# visualize_metrics(simulator.metrics)
-# plot_load_differences(simulator.metrics)
+    for _, zone_manager in simulator.zone_managers.items():
+        if isinstance(zone_manager, HRLZoneManager):
+            zone_manager.save_checkpoint("./checkpoints")

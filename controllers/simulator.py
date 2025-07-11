@@ -2,6 +2,8 @@ import random
 from collections import defaultdict
 from typing import Dict, List
 
+from matplotlib import pyplot as plt
+
 from config import Config
 from controllers.finalChoice import FinalChoice
 from controllers.loader import Loader
@@ -15,7 +17,7 @@ from models.node.fog import MobileFogNode
 from models.node.user import UserNode
 from models.task import Task
 from utils.clock import Clock
-from utils.enums import Layer
+from utils.enums import Layer, VehicleApplicationType
 
 
 def yellow_bg(text):
@@ -32,7 +34,7 @@ def blue_bg(text):
 
 class Simulator:
     def __init__(self, loader: Loader, clock: Clock, cloud: CloudNode):
-        self.metrics: MetricsController = MetricsController()
+        self.metrics: MetricsController = MetricsController(clock)
         self.loader: Loader = loader
         self.cloud_node: CloudNode = cloud
         self.zone_managers: Dict[str, ZoneManagerABC] = {}
@@ -98,22 +100,30 @@ class Simulator:
                         zone_manager_offload_task.append((proposed_zone_manager, proposed_executor))
         return zone_manager_offload_task
 
-    def choose_executor_and_assign(self, zone_manager_offload_task, task, current_time):
+    def choose_executor_and_assign(self, zone_manager_offload_task, task, current_time) -> None:
+        if task.priority == VehicleApplicationType.CRUCIAL:
+            while not task.creator.can_offload_task(task):
+                preempted_task = task.creator.preempt_low_task()
+                self.schedule_retransmission(preempted_task, current_time + 1)
+                self.metrics.inc_preemption()
+            self.metrics.inc_node_tasks(task.creator.id)
+            task.creator.assign_task(task, current_time)
+            return
+
         # if any ZM suggest any device to offload
         if len(zone_manager_offload_task) != 0:
             finalCandidates = []
 
             for candidate in zone_manager_offload_task:
-                zone_manager, candidate_executor = candidate
-                # print(f"candidate_executor: {candidate_executor}")
+                finalCandidates.append(candidate)
 
-                finalCandidates.append((zone_manager, candidate_executor))
-
-            finalChoiceToOffload = FinalChoice().makeFinalChoice(finalCandidates, Config.FinalDeciderMethod.DEFAULT_METHOD)
+            finalChoiceToOffload = FinalChoice().makeFinalChoice(
+                finalCandidates,
+                Config.FinalDeciderMethod.DEFAULT_METHOD,
+            )
 
             # if finalChoiceToOffload:
             #     print(yellow_bg(f"finalChoiceToOffload:{finalChoiceToOffload}"))
-
 
             chosen_zone_manager, chosen_executor = finalChoiceToOffload
             self.task_zone_managers[task.id] = chosen_zone_manager
@@ -136,6 +146,7 @@ class Simulator:
                 #     print(red_bg(f"reward: --- {reward} --- {task.id}, {chosen_executor.id}"))
             else:
                 chosen_executor.assign_task(task, current_time)
+
             # if reward < 0:
             #     print(chosen_executor.remaining_power)
             if isinstance(chosen_zone_manager, DeepRLZoneManager):
@@ -181,6 +192,31 @@ class Simulator:
             self.metrics.log_metrics()
         self.drop_not_completed_tasks()
 
+        self.plot_deadline_misses()
+        self.plot_preemption()
+
+    def plot_deadline_misses(self):
+        print('plotting deadline misses')
+        x_values, y_values = zip(*self.metrics.deadline_miss_history)
+        plt.plot(x_values, y_values)
+        plt.xlabel('Timestep')
+        plt.ylabel('# Deadline misses')
+        plt.title('Deadline miss history')
+        plt.grid(True)
+        plt.savefig('deadline.png')
+        plt.show()
+
+    def plot_preemption(self):
+        print('plotting preemption')
+        x_values, y_values = zip(*self.metrics.preemption_history)
+        plt.plot(x_values, y_values)
+        plt.xlabel('Timestep')
+        plt.ylabel('# Preemption')
+        plt.title('Preemption history')
+        plt.grid(True)
+        plt.savefig('preemption.png')
+        plt.show()
+
     def load_tasks(self, current_time: float) -> Dict[str, List[Task]]:
         tasks: Dict[str, List[Task]] = defaultdict(list)
         for creator_id, creator_tasks in self.loader.load_nodes_tasks(current_time).items():
@@ -223,7 +259,7 @@ class Simulator:
 
                 if task.creator.id == task.executor.id:
                     self.metrics.inc_local_execution()
-                elif isinstance(task.executor, FixedFogNode) or isinstance(task.executor, FixedFogNode):
+                elif isinstance(task.executor, FixedFogNode) or isinstance(task.executor, MobileFogNode):
                     self.metrics.inc_fog_execution()
                 elif isinstance(task.executor, CloudNode):
                     self.metrics.inc_cloud_tasks()

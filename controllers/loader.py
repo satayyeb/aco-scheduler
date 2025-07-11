@@ -2,6 +2,7 @@ from collections import defaultdict
 from typing import Type
 
 from NoiseConfigs.utilsFunctions import UtilsFunc
+from controllers.zone_managers.aco.zone_manager import AcoZoneManager
 from controllers.zone_managers.base import ZoneManagerABC
 from controllers.zone_managers.heuristic import HeuristicZoneManager
 from controllers.zone_managers.random import RandomZoneManager
@@ -21,6 +22,7 @@ class Loader:
         Config.ZoneManagerConfig.ALGORITHM_ONLY_CLOUD: OnlyCloudZoneManager,
         Config.ZoneManagerConfig.ALGORITHM_ONLY_FOG: OnlyFogZoneManager,
         Config.ZoneManagerConfig.ALGORITHM_DEEP_RL: DeepRLZoneManager,
+        Config.ZoneManagerConfig.ALGORITHM_ACO: AcoZoneManager,
     }
 
     def __init__(self, zone_file: str, fixed_fn_file: str, mobile_file: str, task_file: str, checkpoint_path: str):

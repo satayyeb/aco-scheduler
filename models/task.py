@@ -5,7 +5,7 @@ import numpy as np
 from config import Config
 from models.base import ModelBaseABC
 from models.node.base import MobileNodeABC, NodeABC
-from utils.enums import Layer
+from utils.enums import Layer, VehicleApplicationType
 
 
 @dataclass
@@ -24,6 +24,8 @@ class Task(ModelBaseABC):
 
     creator: MobileNodeABC = None
     executor: NodeABC = None
+
+    priority: VehicleApplicationType = None
 
     def real_exec_time(self, executor=None) -> float:
         # print(f"self.executor : {self.executor}\nexecutor : {executor}")

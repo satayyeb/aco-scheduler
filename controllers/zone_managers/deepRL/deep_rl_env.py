@@ -32,7 +32,7 @@ def checkMigration(executor, task, finishTime):
     finishTime = math.floor(finishTime)
     if finishTime > 1200:
         return False
-    fileName = f"E:\pythonProject\VANET\SumoDividedByTime\Outputs2\dataInTime{int(finishTime)}.csv"
+    fileName = f"SumoDividedByTime/Outputs2/dataInTime{int(finishTime)}.csv"
     creatorX, creatorY = get_vehicle_position(fileName, task.creator_id)
     if (creatorX is None) or (creatorY is None):
         return True

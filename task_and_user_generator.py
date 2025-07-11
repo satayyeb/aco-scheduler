@@ -140,7 +140,8 @@ class Generator:
             crucial_time_elem.set('time', f"{time_data['step']}")
 
             for task in time_data['tasks']:
-                if task.priority == VehicleApplicationType.CRUCIAL:
+                # only merge all tasks in one file:
+                if False and task.priority == VehicleApplicationType.CRUCIAL:
                     element = Et.SubElement(crucial_time_elem, 'task')
                 else:
                     element = Et.SubElement(time_elem, 'task')
@@ -201,7 +202,7 @@ class Generator:
             2
         )
         return Task(
-            id=f"{vehicle.id}_{step}",
+            id=f"{vehicle.id}_{step}" + ('_c' if priority == VehicleApplicationType.CRUCIAL else ''),
             deadline=deadline,
             exec_time=exec_time,
             power=power,

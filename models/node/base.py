@@ -10,7 +10,7 @@ import numpy as np
 from NoiseConfigs.utilsFunctions import UtilsFunc
 from config import Config
 from models.base import ModelBaseABC
-from utils.enums import Layer
+from utils.enums import Layer, VehicleApplicationType
 from utils.distance import get_distance
 from task_and_user_generator import Config as Cnf
 
@@ -128,15 +128,14 @@ class NodeABC(ModelBaseABC, abc.ABC):
         task_power = task.power
         if self.id == task.creator.id and self.layer == Layer.USER:
             task_power *= Config.UserNodeConfig.LOCAL_OFFLOAD_POWER_OVERHEAD
-        if task_power > self.remaining_power:
-            # print(blue_bg(f"remaining_power"))
+        if task.power > self.remaining_power:
             return False
         if get_distance(self.x, self.y, task.creator.x, task.creator.y) > self.radius:
             # print(blue_bg(f"distance"))
             return False
         return True
 
-    def assign_task(self, task, current_time: float) -> None:
+    def assign_task(self, task, current_time: float):
         """Offload a task in the current node."""
         # print(f"task:{task}")
         # note: i think below code has been checked
@@ -149,6 +148,7 @@ class NodeABC(ModelBaseABC, abc.ABC):
         task_power = task.power
         if self.id == task.creator.id and self.layer == Layer.USER:
             task_power *= Config.UserNodeConfig.LOCAL_OFFLOAD_POWER_OVERHEAD
+
         self.remaining_power -= task_power
         task.start_time = current_time
         # task.start_time = task.release_time
@@ -261,3 +261,36 @@ class MobileNodeABC(NodeABC, abc.ABC):
 
     speed: float = 0
     angle: float = 0
+
+    @property
+    def remaining_40_percent_power(self):
+        used_non_crucial_power = 0.0
+        for task in self.tasks:
+            if task.priority != VehicleApplicationType.CRUCIAL:
+                used_non_crucial_power += task.power
+        return max(0.0, self.power * 0.4 - used_non_crucial_power)
+
+    def can_offload_task(self, task) -> bool:
+        if not super().can_offload_task(task):
+            return False
+        if task.priority == VehicleApplicationType.HIGH_CRITICAL and task.power > self.remaining_40_percent_power:
+            return False
+        if task.priority == VehicleApplicationType.LOW_CRITICAL and task.power > self.remaining_power:
+            return False
+        return True
+
+    def preempt_low_task(self) -> 'Task':
+        for task in self.tasks:
+            if task.priority == VehicleApplicationType.LOW_CRITICAL:
+                preempted_task = task
+                break
+        else:
+            raise RuntimeError('No low task to preempt. Failure :(')
+
+        self.tasks.remove(preempted_task)
+        preempted_task.executor = None
+        preempted_task.start_time = 0
+        preempted_task.finish_time = 0
+        preempted_task.real_exec_time_base = 0
+        self.remaining_power += preempted_task.power * Config.UserNodeConfig.LOCAL_OFFLOAD_POWER_OVERHEAD
+        return preempted_task

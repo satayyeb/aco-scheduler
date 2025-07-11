@@ -2,7 +2,7 @@ class Config:
     CHUNK_SIZE = 1200
 
     class SimulatorConfig:
-        SIMULATION_DURATION = 1200
+        SIMULATION_DURATION = 100
         BANDWIDTH = 150
 
     class CloudConfig:
@@ -39,13 +39,15 @@ class Config:
         ALGORITHM_ONLY_CLOUD = "Only Cloud"
         ALGORITHM_ONLY_FOG = "Only Fog"
         ALGORITHM_DEEP_RL = "DeepRL"
+        ALGORITHM_ACO = "ACO"
 
-        DEFAULT_ALGORITHM = ALGORITHM_DEEP_RL
+        DEFAULT_ALGORITHM = ALGORITHM_ACO
 
     class FinalDeciderMethod:
         FIRST_CHOICE = "First Choice"
         RANDOM_CHOICE = "Random Choice"
         MIN_DISTANCE = "Min Distance"
+        ACO_BASED = "ACO Based"
 
         DEFAULT_METHOD = FIRST_CHOICE
 

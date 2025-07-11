@@ -9,6 +9,7 @@ from models.node.user import UserNode
 from models.task import Task
 from models.zone import Zone
 from config import Config
+from utils.enums import VehicleApplicationType
 
 
 class SumoXMLParserABC(abc.ABC):
@@ -115,8 +116,8 @@ class MobileNodeSumoXMLParser(SumoXMLParserABC):
 
 
 class TaskSumoXMLParser(SumoXMLParserABC):
-    def __init__(self, chunk_path: str, chunk_number: int):  # TODO: generate tasks file.
-        xml_file_path = f"{chunk_path}/chunk_{chunk_number}.xml"
+    def __init__(self, chunk_path: str, chunk_number: int, is_crucial: bool = False):  # TODO: generate tasks file.
+        xml_file_path = f"{chunk_path}/{'crucial_' if is_crucial else ''}chunk_{chunk_number}.xml"
         super().__init__(xml_file_path)
         self._data: Dict[float, List[Task]] = {}
 
@@ -138,7 +139,8 @@ class TaskSumoXMLParser(SumoXMLParserABC):
                         exec_time=float(task.get('exec_time')),
                         power=float(task.get('power')),
                         creator_id=task.get('creator'),
-                        dataSize=float(task.get('dataSize'))
+                        dataSize=float(task.get('dataSize')),
+                        priority=VehicleApplicationType.form_string(task.get('priority')),
                     )
                 )
             data[step] = tasks

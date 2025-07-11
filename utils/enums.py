@@ -21,3 +21,12 @@ class VehicleApplicationType(enum.Enum):
     CRUCIAL = 'crucial'
     HIGH_CRITICAL = 'high_critical'
     LOW_CRITICAL = 'low_critical'
+
+    @classmethod
+    def form_string(cls, string):
+        for item in VehicleApplicationType:
+            if string == item.value or string == item.name:
+                return item
+        else:
+            raise ValueError(f'Invalid Vehicle Application Type: {string}')
+

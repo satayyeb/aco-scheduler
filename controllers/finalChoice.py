@@ -2,6 +2,9 @@ import math
 import random
 
 from config import Config
+from controllers.zone_managers.aco.zone_manager import AcoZoneManager
+from models.node.base import NodeABC
+
 
 def red_bg(text):
     return f"\033[41m{text}\033[0m"
@@ -20,6 +23,9 @@ class FinalChoice:
 
             elif method == Config.FinalDeciderMethod.MIN_DISTANCE:
                 return self.minDistanceMethod(finalCandidates)
+
+            elif method == Config.FinalDeciderMethod.ACO_BASED:
+                return self.aco_method(finalCandidates)
 
     def randomMethod(self, attenuationList):
         valid_entries = self.calcValidEntries(attenuationList)
@@ -58,3 +64,6 @@ class FinalChoice:
                 (finalCandidates[i], self.calcMinDistance(finalCandidates[i][0].zone, finalCandidates[i][1])))
         min_distance = min(distances, key=lambda x: x[1])
         return min_distance
+
+    def aco_method(self, final_candidates: list[tuple[AcoZoneManager, NodeABC]]) -> tuple[AcoZoneManager, NodeABC]:
+        return final_candidates[0]  # TODO: Change this later
